@@ -1,0 +1,105 @@
+---
+- name: System Audit Playbook
+  hosts: all
+  gather_facts: yes
+  become: no
+
+  tasks:
+    - name: Display basic system information
+      debug:
+        msg: |
+          OS: {{ ansible_distribution }} {{ ansible_distribution_version }}
+          Kernel: {{ ansible_kernel }}
+          Hostname: {{ ansible_hostname }}
+          IP Address: {{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}
+
+    - name: Show CPU and Memory Info
+      debug:
+        msg: |
+          CPU Cores: {{ ansible_processor_cores }}
+          Total Memory: {{ (ansible_memory_mb.real.total | int) / 1024 }} GB
+
+    - name: Check Disk Usage
+      shell: df -h --output=source,size,used,avail,pcent | grep -vE '^Filesystem|tmpfs'
+      register: disk_usage
+      args:
+        warn: no
+
+    - name: Display Disk Usage
+      debug:
+        msg: "{{ disk_usage.stdout }}"
+
+    - name: List Logged-in Users
+      shell: who | awk '{print $1 " from " $5}'
+      register: logged_users
+      ignore_errors: yes
+      args:
+        warn: no
+
+    - name: Show Logged-in Users
+      debug:
+        msg: |
+          {% if logged_users.stdout == '' %}
+            No users currently logged in.
+          {% else %}
+            Currently logged in users:
+            {{ logged_users.stdout }}
+          {% endif %}
+
+    - name: Get Last Reboot Time
+      shell: who -b | awk '{print $3 " " $4}'
+      register: last_reboot
+      args:
+        warn: no
+
+    - name: Display Last Reboot Time
+      debug:
+        msg: "Last reboot time: {{ last_reboot.stdout }}"
+
+    - name: Show Running Services (First 10)
+      shell: systemctl list-units --type=service --state=running --no-pager | head -n 10
+      register: running_services
+      args:
+        warn: no
+
+    - name: Display Running Services
+      debug:
+        msg: "{{ running_services.stdout }}"
+
+    - name: Check for Available Security Updates (YUM)
+      shell: yum check-update --security -q | wc -l
+      register: sec_updates_yum
+      when: ansible_pkg_mgr == 'yum'
+      ignore_errors: yes
+      args:
+        warn: no
+
+    - name: Report Security Updates (YUM)
+      debug:
+        msg: |
+          {% set count = sec_updates_yum.stdout | int %}
+          {% if count > 0 %}
+            ⚠️ Warning: There are {{ count }} pending security updates!
+          {% else %}
+            ✅ All security updates have been applied.
+          {% endif %}
+      when: ansible_pkg_mgr == 'yum'
+
+    - name: Check for Available Security Updates (APT)
+      shell: apt update -qq > /dev/null && apt list --upgradable 2>/dev/null | grep -i security | wc -l
+      register: sec_updates_apt
+      when: ansible_pkg_mgr == 'apt'
+      ignore_errors: yes
+      args:
+        warn: no
+
+    - name: Report Security Updates (APT)
+      debug:
+        msg: |
+          {% set count = sec_updates_apt.stdout | int %}
+          {% if count > 0 %}
+            ⚠️ Warning: There are {{ count }} pending security updates!
+          {% else %}
+            ✅ All security updates have been applied.
+          {% endif %}
+      when: ansible_pkg_mgr == 'apt'
