@@ -1,6 +1,6 @@
 ---
 - name: System Audit Playbook
-  hosts: all
+  hosts: webgroup
   gather_facts: yes
   become: no
 
